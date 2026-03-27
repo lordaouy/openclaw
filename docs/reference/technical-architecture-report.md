@@ -173,10 +173,10 @@ graph TB
     ACP --> PIRunner
     OutboundFmt --> Discord & Telegram & Slack & WhatsApp & Signal & Matrix & IRC & WebUI & CLI & MSTeams & MoreChannels
 
-    style GatewayServer fill:#1a1a2e,stroke:#16213e,color:#e8e8e8
-    style AgentEngine fill:#0f3460,stroke:#16213e,color:#e8e8e8
-    style LLMProviders fill:#533483,stroke:#16213e,color:#e8e8e8
-    style SandboxBackends fill:#e94560,stroke:#16213e,color:#e8e8e8
+    style GatewayServer fill:#d0e8ff,stroke:#6fa8dc,color:#1a1a1a
+    style AgentEngine fill:#a4c2f4,stroke:#6fa8dc,color:#1a1a1a
+    style LLMProviders fill:#d5a6e6,stroke:#6fa8dc,color:#1a1a1a
+    style SandboxBackends fill:#ef9a9a,stroke:#6fa8dc,color:#1a1a1a
 ```
 
 ### Component Interaction Summary
@@ -494,8 +494,8 @@ graph TB
     HTTP --> ControlUI
     OpenAI_API --> TokenAuth
 
-    style GatewayServer fill:#1a1a2e,stroke:#e94560,color:#e8e8e8
-    style RPCMethods fill:#0f3460,stroke:#16213e,color:#e8e8e8
+    style GatewayServer fill:#d0e8ff,stroke:#ef9a9a,color:#1a1a1a
+    style RPCMethods fill:#a4c2f4,stroke:#6fa8dc,color:#1a1a1a
 ```
 
 ### Gateway Boot Sequence
@@ -518,8 +518,8 @@ flowchart TD
     InitDiagnostics --> StartListening["Start WebSocket + HTTP listeners"]
     StartListening --> Ready([Gateway Ready ✓])
 
-    style Start fill:#2d6a4f,stroke:#1b4332,color:white
-    style Ready fill:#2d6a4f,stroke:#1b4332,color:white
+    style Start fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+    style Ready fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
 ```
 
 ---
@@ -565,9 +565,9 @@ graph TB
     ProcessResponse --> ToolUse --> LoopDetect --> StreamCall
     ProcessResponse --> AppendJSONL --> UpdateSession --> CheckCompaction --> ReleaseLock
 
-    style Phase1 fill:#264653,stroke:#2a9d8f,color:white
-    style Phase2 fill:#e76f51,stroke:#f4a261,color:white
-    style Phase3 fill:#2a9d8f,stroke:#264653,color:white
+    style Phase1 fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Phase2 fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
+    style Phase3 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
 ```
 
 ### Agent Execution State Diagram
@@ -711,9 +711,9 @@ flowchart TD
     DrainQueue -->|Yes| AcquireLock
     DrainQueue -->|No| Done([Complete])
 
-    style InboundMsg fill:#2d6a4f,stroke:#1b4332,color:white
-    style Done fill:#2d6a4f,stroke:#1b4332,color:white
-    style CmdResponse fill:#2d6a4f,stroke:#1b4332,color:white
+    style InboundMsg fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+    style Done fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+    style CmdResponse fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
 ```
 
 ### Queue Modes Comparison
@@ -793,15 +793,15 @@ flowchart TD
     
     B8{"8. Default\nFallback agent"} -->|Always| R8([Default Agent\nmatchedBy: default])
 
-    style Input fill:#264653,stroke:#2a9d8f,color:white
-    style R1 fill:#2a9d8f,stroke:#264653,color:white
-    style R2 fill:#2a9d8f,stroke:#264653,color:white
-    style R3 fill:#2a9d8f,stroke:#264653,color:white
-    style R4 fill:#2a9d8f,stroke:#264653,color:white
-    style R5 fill:#2a9d8f,stroke:#264653,color:white
-    style R6 fill:#2a9d8f,stroke:#264653,color:white
-    style R7 fill:#2a9d8f,stroke:#264653,color:white
-    style R8 fill:#e76f51,stroke:#f4a261,color:white
+    style Input fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style R1 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style R2 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style R3 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style R4 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style R5 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style R6 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style R7 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style R8 fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
 ```
 
 ### Routing Types
@@ -896,9 +896,9 @@ graph TB
 
     Tier1 --> Tier2 --> Tier3
 
-    style Tier1 fill:#e76f51,stroke:#f4a261,color:white
-    style Tier2 fill:#2a9d8f,stroke:#264653,color:white
-    style Tier3 fill:#264653,stroke:#2a9d8f,color:white
+    style Tier1 fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
+    style Tier2 fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style Tier3 fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
 ```
 
 ### SessionEntry — Central Metadata Record
@@ -1096,8 +1096,8 @@ flowchart TD
     LoopBlocked --> Result
     Denied --> Result
 
-    style ToolCall fill:#264653,stroke:#2a9d8f,color:white
-    style Result fill:#2a9d8f,stroke:#264653,color:white
+    style ToolCall fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Result fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
 ```
 
 ### Owner-Only Tools
@@ -1158,9 +1158,9 @@ graph TB
     PolicyCheck -->|ssh| SSHConnect --> SSHExec
     PolicyCheck -->|host| HostDirect --> HostApproval
 
-    style DockerBackend fill:#e76f51,stroke:#f4a261,color:white
-    style SSHBackend fill:#264653,stroke:#2a9d8f,color:white
-    style HostBackend fill:#e9c46a,stroke:#f4a261,color:black
+    style DockerBackend fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
+    style SSHBackend fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style HostBackend fill:#fff9c4,stroke:#ffcc80,color:#1a1a1a
 ```
 
 ### Sandbox Configuration Type
@@ -1346,8 +1346,8 @@ graph TB
     PluginManifest --> ReadManifest
     PluginSDK --> ChannelTypes & ProviderTypes & MediaTypes & RuntimeTypes
 
-    style PluginSystem fill:#264653,stroke:#2a9d8f,color:white
-    style PluginSDK fill:#2a9d8f,stroke:#264653,color:white
+    style PluginSystem fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style PluginSDK fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
 ```
 
 ### Channel Plugin Contract (Full Interface)
@@ -1446,8 +1446,8 @@ flowchart TD
     CheckBudget -->|Yes| IncludeAll --> AddSystemPrompt --> Result
     CheckBudget -->|No| TriggerCompact --> ReadOldest --> Summarize --> ReplaceWithSummary --> UpdateMetadata --> Assembly
 
-    style Assembly fill:#264653,stroke:#2a9d8f,color:white
-    style Compaction fill:#e76f51,stroke:#f4a261,color:white
+    style Assembly fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Compaction fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
 ```
 
 ### Context Engine Interface
@@ -1522,9 +1522,9 @@ graph TB
     Query --> ExtractKW --> FTSSearch --> KeywordResults --> Merge
     Merge --> TemporalDecay --> FinalResults
 
-    style Ingestion fill:#264653,stroke:#2a9d8f,color:white
-    style VectorPath fill:#2a9d8f,stroke:#264653,color:white
-    style KeywordPath fill:#e76f51,stroke:#f4a261,color:white
+    style Ingestion fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style VectorPath fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style KeywordPath fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
 ```
 
 ### Embedding Providers
@@ -1598,8 +1598,8 @@ graph TB
     HookSources --> HookLifecycle
     Events --> Fire
 
-    style BundledHooks fill:#2a9d8f,stroke:#264653,color:white
-    style Events fill:#e76f51,stroke:#f4a261,color:white
+    style BundledHooks fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style Events fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
 ```
 
 ### Hook Metadata Type
@@ -1661,11 +1661,11 @@ flowchart TD
     PruneCheck -->|No| Done([Complete])
     Prune --> Done
 
-    style Start fill:#264653,stroke:#2a9d8f,color:white
-    style Done fill:#2a9d8f,stroke:#264653,color:white
-    style Skip fill:#e9c46a,stroke:#f4a261,color:black
-    style SkipEmpty fill:#e9c46a,stroke:#f4a261,color:black
-    style Suppress fill:#e9c46a,stroke:#f4a261,color:black
+    style Start fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Done fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style Skip fill:#fff9c4,stroke:#ffcc80,color:#1a1a1a
+    style SkipEmpty fill:#fff9c4,stroke:#ffcc80,color:#1a1a1a
+    style Suppress fill:#fff9c4,stroke:#ffcc80,color:#1a1a1a
 ```
 
 ### Heartbeat Use Cases
@@ -1722,8 +1722,8 @@ graph TB
     
     Spawn & Send & Yield & List & History & Subagents --> |used by| ParentLLM
 
-    style Orchestrator fill:#264653,stroke:#2a9d8f,color:white
-    style Children fill:#2a9d8f,stroke:#264653,color:white
+    style Orchestrator fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Children fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
 ```
 
 ### Session Hierarchy
@@ -1817,8 +1817,8 @@ graph TB
     AuthProfiles --> ModelDiscovery
     ModelDiscovery --> OpenAI_P & Anthropic_P & Google_P & Bedrock_P & DeepSeek_P & Groq_P & Mistral_P & Ollama_P & Together_P & OpenRouter_P & VLLM_P & SGLang_P & XAI_P & NVIDIA_P & Perplexity_P & GHCopilot_P & More_P
 
-    style Abstraction fill:#264653,stroke:#2a9d8f,color:white
-    style Providers fill:#0f3460,stroke:#16213e,color:#e8e8e8
+    style Abstraction fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Providers fill:#a4c2f4,stroke:#6fa8dc,color:#1a1a1a
 ```
 
 ### Auth Profile Failover
@@ -1914,9 +1914,9 @@ graph TB
     
     Commander --> TopLevel & SubGroups
 
-    style CLIEntry fill:#264653,stroke:#2a9d8f,color:white
-    style TopLevel fill:#2a9d8f,stroke:#264653,color:white
-    style SubGroups fill:#e76f51,stroke:#f4a261,color:white
+    style CLIEntry fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style TopLevel fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
+    style SubGroups fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
 ```
 
 **Total**: 21 top-level commands + 28 sub-command groups = **49 CLI entry points**
@@ -1987,10 +1987,10 @@ graph TB
     
     iOS & Android & macOS & Web --> WSProtocol
 
-    style iOS fill:#0071e3,stroke:#004ea2,color:white
-    style Android fill:#3ddc84,stroke:#2d9f64,color:black
-    style macOS fill:#333333,stroke:#555555,color:white
-    style Web fill:#e76f51,stroke:#f4a261,color:white
+    style iOS fill:#bbdefb,stroke:#90caf9,color:#1a1a1a
+    style Android fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+    style macOS fill:#e0e0e0,stroke:#bdbdbd,color:#1a1a1a
+    style Web fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
 ```
 
 ### Platform Details
@@ -2054,14 +2054,14 @@ graph TB
     
     Layer1 --> Layer2 --> Layer3 --> Layer4 --> Layer5 --> Layer6 --> Layer7 --> Layer8
 
-    style Layer1 fill:#2d6a4f,stroke:#1b4332,color:white
-    style Layer2 fill:#40916c,stroke:#2d6a4f,color:white
-    style Layer3 fill:#52b788,stroke:#40916c,color:white
-    style Layer4 fill:#74c69d,stroke:#52b788,color:black
-    style Layer5 fill:#e76f51,stroke:#f4a261,color:white
-    style Layer6 fill:#264653,stroke:#2a9d8f,color:white
-    style Layer7 fill:#e9c46a,stroke:#f4a261,color:black
-    style Layer8 fill:#f4a261,stroke:#e9c46a,color:black
+    style Layer1 fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+    style Layer2 fill:#a5d6a7,stroke:#2d6a4f,color:#1a1a1a
+    style Layer3 fill:#c8e6c9,stroke:#a5d6a7,color:#1a1a1a
+    style Layer4 fill:#c8e6c9,stroke:#a5d6a7,color:#1a1a1a
+    style Layer5 fill:#ffab91,stroke:#ffcc80,color:#1a1a1a
+    style Layer6 fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Layer7 fill:#fff9c4,stroke:#ffcc80,color:#1a1a1a
+    style Layer8 fill:#ffe0b2,stroke:#fff176,color:#1a1a1a
 ```
 
 ### Security Module Architecture
@@ -2164,8 +2164,8 @@ graph TB
     
     GatewayService --> CLIService
 
-    style GatewayService fill:#264653,stroke:#2a9d8f,color:white
-    style CLIService fill:#2a9d8f,stroke:#264653,color:white
+    style GatewayService fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style CLIService fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
 ```
 
 ### Build Arguments
@@ -2211,8 +2211,8 @@ flowchart LR
     
     Source --> TSGo["tsgo\n(type checker)"]
 
-    style Source fill:#264653,stroke:#2a9d8f,color:white
-    style Dist fill:#2a9d8f,stroke:#264653,color:white
+    style Source fill:#b2dfdb,stroke:#80cbc4,color:#1a1a1a
+    style Dist fill:#80cbc4,stroke:#80cbc4,color:#1a1a1a
 ```
 
 ### Test Configuration
