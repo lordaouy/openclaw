@@ -21,6 +21,9 @@
 8. [Message Routing System](#viii-message-routing-system)
 9. [Session & State Management](#ix-session--state-management)
 10. [Tool System & Execution](#x-tool-system--execution)
+    - [Web Fetch Tool — Deep Dive](#web-fetch-tool--deep-dive)
+    - [Web Search Tool — Deep Dive](#web-search-tool--deep-dive)
+    - [Network Security (shared)](#network-security-web_fetch--web_search-shared)
 11. [Sandbox Isolation Architecture](#xi-sandbox-isolation-architecture)
 12. [Plugin & Extension Architecture](#xii-plugin--extension-architecture)
 13. [Context Engine & Compaction](#xiii-context-engine--compaction)
@@ -1110,6 +1113,410 @@ These tools are restricted to the gateway operator (not regular chat users):
 | `cron` | Scheduled task creation |
 | `gateway` | Gateway administration |
 | `nodes` | Node infrastructure management |
+
+### Web Fetch Tool — Deep Dive
+
+The `web_fetch` tool retrieves web page content and converts it to LLM-friendly markdown or plain text. It is implemented in `src/agents/tools/web-fetch.ts` (~806 lines) with supporting utilities in `web-fetch-utils.ts`, `web-fetch-visibility.ts`, and `web-guarded-fetch.ts`.
+
+#### Architecture Overview
+
+```mermaid
+flowchart TD
+    LLM(["LLM calls web_fetch\n(url, extractMode, maxChars)"]) --> Validate["URL Validation\n(http/https only)"]
+    Validate --> CacheCheck{"In-memory\ncache hit?"}
+    CacheCheck -->|Hit| CacheReturn["Return cached result\n(cached: true)"]
+    CacheCheck -->|Miss| SSRFGuard["SSRF Network Guard\nfetchWithWebToolsNetworkGuard()"]
+    
+    SSRFGuard --> Fetch["HTTP Fetch\n(User-Agent, Accept headers,\nmax redirects, timeout)"]
+    Fetch --> ContentDetect{"Content-Type?"}
+    
+    ContentDetect -->|text/markdown| CFMarkdown["Cloudflare Markdown\nfor Agents\n(x-markdown-tokens header)"]
+    ContentDetect -->|application/json| JSONFormat["JSON pretty-print"]
+    ContentDetect -->|text/html| ReadabilityExtract["@mozilla/readability\nextraction"]
+    ContentDetect -->|other| RawText["Raw text passthrough"]
+    
+    ReadabilityExtract --> ReadOK{"Readability\nsucceeded?"}
+    ReadOK -->|Yes| HTMLtoMD["htmlToMarkdown()\nconversion"]
+    ReadOK -->|No| FirecrawlFallback{"Firecrawl\nenabled?"}
+    
+    FirecrawlFallback -->|Yes| Firecrawl["Firecrawl API\n/v2/scrape\n(trusted endpoint)"]
+    FirecrawlFallback -->|No| BasicHTML["Basic HTML cleanup\nextractBasicHtmlContent()"]
+    
+    Firecrawl --> FireOK{"Firecrawl\nsucceeded?"}
+    FireOK -->|Yes| FireContent["Use Firecrawl markdown"]
+    FireOK -->|No| BasicHTML
+    
+    BasicHTML --> BasicOK{"Content\nextracted?"}
+    BasicOK -->|Yes| BasicContent["Use basic cleanup"]
+    BasicOK -->|No| ExtractFail["Error: all extractors failed"]
+    
+    CFMarkdown & JSONFormat & HTMLtoMD & FireContent & BasicContent & RawText --> ModeCheck{"extractMode?"}
+    ModeCheck -->|markdown| WrapContent["wrapWebContent()\nsecurity wrapper"]
+    ModeCheck -->|text| StripMD["markdownToText()\nstrip formatting"] --> WrapContent
+    
+    WrapContent --> Truncate["Truncate to maxChars\n(account for wrapper overhead)"]
+    Truncate --> CacheStore["Store in cache\n(TTL: 15 min, max 100 entries)"]
+    CacheStore --> Response["Return structured result"]
+    
+    style LLM fill:#e8f5e9,stroke:#81c784,color:#1a1a1a
+    style SSRFGuard fill:#ffcdd2,stroke:#ef9a9a,color:#1a1a1a
+    style ReadabilityExtract fill:#bbdefb,stroke:#90caf9,color:#1a1a1a
+    style Firecrawl fill:#ffe0b2,stroke:#ffcc80,color:#1a1a1a
+    style Response fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+```
+
+#### Tool Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | *(required)* | HTTP or HTTPS URL to fetch |
+| `extractMode` | `"markdown"` \| `"text"` | `"markdown"` | Output format — markdown preserves structure, text strips formatting |
+| `maxChars` | number | 50,000 | Maximum characters to return (capped by `maxCharsCap`) |
+
+#### Configuration Keys
+
+| Config Key | Type | Default | Description |
+|------------|------|---------|-------------|
+| `tools.web.fetch.enabled` | boolean | `true` | Master enable/disable |
+| `tools.web.fetch.maxChars` | number | 50,000 | Default max characters |
+| `tools.web.fetch.maxCharsCap` | number | 50,000 | Hard ceiling (cannot be exceeded by param) |
+| `tools.web.fetch.maxResponseBytes` | number | 2,000,000 | Max download size (2 MB) |
+| `tools.web.fetch.readability` | boolean | `true` | Use @mozilla/readability for extraction |
+| `tools.web.fetch.timeoutSeconds` | number | 30 | HTTP request timeout |
+| `tools.web.fetch.cacheTtlMinutes` | number | 15 | Cache time-to-live |
+| `tools.web.fetch.maxRedirects` | number | 3 | Maximum HTTP redirects to follow |
+| `tools.web.fetch.userAgent` | string | Chrome 122 macOS | Custom User-Agent header |
+| `tools.web.fetch.firecrawl.enabled` | boolean | *(auto)* | Auto-enabled if `apiKey` present |
+| `tools.web.fetch.firecrawl.apiKey` | string | — | API key (or env `FIRECRAWL_API_KEY`) |
+| `tools.web.fetch.firecrawl.baseUrl` | string | `https://api.firecrawl.dev` | Firecrawl API endpoint |
+| `tools.web.fetch.firecrawl.onlyMainContent` | boolean | `true` | Extract main content only |
+| `tools.web.fetch.firecrawl.maxAgeMs` | number | 172,800,000 | Cache age hint (2 days) |
+| `tools.web.fetch.firecrawl.timeoutSeconds` | number | 30 | Firecrawl API timeout |
+
+#### Content Extraction Pipeline
+
+The extraction pipeline uses a **cascading fallback** strategy:
+
+1. **Cloudflare Markdown for Agents** — If the response has `Content-Type: text/markdown` or an `x-markdown-tokens` header, the response body is used as-is (pre-rendered markdown from Cloudflare's edge).
+
+2. **@mozilla/readability** — For HTML responses, `extractReadableContent()` parses with `linkedom`, applies `@mozilla/readability` (charThreshold: 0), and returns the readable article. Guards against pathological HTML: max 1,000,000 chars input, max 3,000 tag nesting depth.
+
+3. **Firecrawl API fallback** — If Readability fails or returns empty content, and Firecrawl is configured, `fetchFirecrawlContent()` calls `POST {baseUrl}/v2/scrape` with the URL. Uses `withTrustedWebToolsEndpoint()` to bypass SSRF guards for the trusted API. Request body includes format preferences, proxy mode (`"auto"`), and cache hints.
+
+4. **Basic HTML cleanup** — If both Readability and Firecrawl fail, `extractBasicHtmlContent()` performs tag-stripping with minimal structure preservation.
+
+5. **Error** — If all extractors return empty, the tool returns an error: *"Web fetch extraction failed: Readability, Firecrawl, and basic HTML cleanup returned no content."*
+
+#### HTML-to-Markdown Conversion (`htmlToMarkdown`)
+
+The converter in `web-fetch-utils.ts` performs:
+- Extracts `<title>` tag content
+- Removes `<script>`, `<style>`, `<noscript>` elements
+- Converts `<a href="...">text</a>` to `[text](href)` links
+- Converts `<h1>` through `<h6>` to `#` through `######` prefixes
+- Converts `<li>` items to `- ` bullet points
+- Converts `<br>`, `<hr>`, and block closers (`</p>`, `</div>`, etc.) to newlines
+- Normalizes whitespace (collapses runs, trims lines)
+
+#### HTML Sanitization (`web-fetch-visibility.ts`)
+
+Before extraction, HTML is sanitized to remove hidden/invisible content that could be used for prompt injection:
+
+| Category | Removed Elements |
+|----------|-----------------|
+| **CSS classes** | `sr-only`, `visually-hidden`, `d-none`, `hidden`, `invisible` |
+| **Inline styles** | `display:none`, `visibility:hidden`, `opacity:0`, negative positioning, `clip-path` |
+| **Attributes** | `hidden`, `aria-hidden=true`, `type=hidden` (inputs) |
+| **Layout tricks** | `transform:scale(0)`, `width:0+height:0+overflow:hidden` |
+| **Tags** | `<script>`, `<svg>`, `<canvas>`, `<iframe>`, `<meta>`, `<template>`, `<embed>`, `<object>` |
+| **Unicode** | Zero-width and invisible characters used in prompt injection |
+
+#### Caching
+
+- **Storage**: In-memory `Map` (module-level singleton)
+- **Key format**: `fetch:{url}:{extractMode}:{maxChars}` (lowercased)
+- **TTL**: 15 minutes (configurable via `cacheTtlMinutes`)
+- **Max entries**: 100 (FIFO eviction when full)
+- **Hit indicator**: Response includes `cached: true`
+
+#### Response Format
+
+```typescript
+{
+  url: string;                    // Original requested URL
+  finalUrl: string;               // URL after redirects
+  status: number;                 // HTTP status code
+  contentType: string;            // Response Content-Type
+  title?: string;                 // Extracted page title
+  extractMode: "markdown" | "text";
+  extractor: "readability" | "firecrawl" | "cf-markdown" | "json" | "raw-html" | "raw";
+  externalContent: {
+    untrusted: true;              // Marks as untrusted external source
+    source: "web_fetch";
+    wrapped: true;
+  };
+  truncated: boolean;             // Whether content was truncated
+  length: number;                 // Characters returned
+  rawLength: number;              // Characters before wrapping
+  wrappedLength: number;          // Characters after security wrapping
+  fetchedAt: string;              // ISO 8601 timestamp
+  tookMs: number;                 // Request duration in milliseconds
+  text: string;                   // The extracted content
+  warning?: string;               // Truncation or extraction warning
+  cached?: boolean;               // True if served from cache
+}
+```
+
+#### Error Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| Invalid URL (not http/https) | Returns error: *"Invalid URL: must be http or https"* |
+| SSRF blocked (private/internal IP) | Throws `SsrfBlockedError` — no fallback attempted |
+| Network error (DNS, timeout) | Tries Firecrawl fallback if enabled, then errors |
+| HTTP 4xx/5xx | Tries Firecrawl fallback, then formats error details as markdown |
+| All extractors fail | Returns error with details on each extractor attempted |
+| Response too large | Streaming read stops at `maxResponseBytes` (2 MB), content truncated |
+
+---
+
+### Web Search Tool — Deep Dive
+
+The `web_search` tool provides AI-powered web search with a **pluggable multi-provider architecture**. The thin shell in `src/agents/tools/web-search.ts` (42 lines) delegates to provider-specific implementations resolved at runtime.
+
+#### Provider Architecture
+
+```mermaid
+flowchart TD
+    LLM(["LLM calls web_search\n(query, count, filters...)"]) --> Resolve["resolveWebSearchDefinition()\nsrc/web-search/runtime.ts"]
+    
+    Resolve --> CheckEnabled{"search\nenabled?"}
+    CheckEnabled -->|No| Disabled["Return null\n(tool not available)"]
+    CheckEnabled -->|Yes| LoadProviders["Load registered\nWebSearchProviderPlugins"]
+    
+    LoadProviders --> ExplicitCheck{"Explicit provider\nconfigured?"}
+    ExplicitCheck -->|Yes| UseExplicit["Use configured provider"]
+    ExplicitCheck -->|No| AutoDetect["Auto-detect by priority"]
+    
+    AutoDetect --> CredCheck{"Provider with\nAPI key found?"}
+    CredCheck -->|Yes| UseKeyed["Use highest-priority\ncredentialed provider"]
+    CredCheck -->|No| UseFree["Fall back to keyless\nprovider (DuckDuckGo)"]
+    
+    UseExplicit & UseKeyed & UseFree --> CreateTool["provider.createTool(ctx)"]
+    CreateTool --> Execute["provider.execute(args)"]
+    
+    Execute --> BraveAPI["Brave Search API"]
+    Execute --> TavilyAPI["Tavily API"]
+    Execute --> DDGAPI["DuckDuckGo API"]
+    Execute --> PerplexityAPI["Perplexity API"]
+    Execute --> FirecrawlSearchAPI["Firecrawl Search API"]
+    Execute --> GrokAPI["X.ai Grok Search"]
+    Execute --> GeminiAPI["Google Gemini Search"]
+    Execute --> KimiAPI["Moonshot Kimi Search"]
+    Execute --> ExaAPI["Exa Search API"]
+    
+    BraveAPI & TavilyAPI & DDGAPI & PerplexityAPI & FirecrawlSearchAPI & GrokAPI & GeminiAPI & KimiAPI & ExaAPI --> WrapResult["wrapWebContent()\nsecurity wrapper"]
+    WrapResult --> Return["Return structured results\nwith provider metadata"]
+    
+    style LLM fill:#e8f5e9,stroke:#81c784,color:#1a1a1a
+    style Resolve fill:#bbdefb,stroke:#90caf9,color:#1a1a1a
+    style AutoDetect fill:#fff9c4,stroke:#fff176,color:#1a1a1a
+    style Return fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+```
+
+#### Provider Plugin Interface
+
+Each web search provider implements the `WebSearchProviderPlugin` interface (defined in `src/plugins/types.ts`):
+
+```typescript
+interface WebSearchProviderPlugin {
+  id: string;                          // e.g., "brave", "tavily"
+  label: string;                       // Display name
+  hint: string;                        // Feature description
+  requiresCredential?: boolean;        // Default: true
+  credentialLabel?: string;            // "API key" label text
+  envVars: string[];                   // Environment variables to check
+  placeholder: string;                 // Example key format
+  signupUrl: string;                   // Where to obtain an API key
+  docsUrl?: string;                    // Provider documentation
+  autoDetectOrder?: number;            // Priority (lower = higher priority)
+  credentialPath: string;              // Config path for the key
+  getCredentialValue(searchConfig?): unknown;
+  setCredentialValue(target, value): void;
+  applySelectionConfig?(config): config;
+  resolveRuntimeMetadata?(ctx): Promise<...>;
+  createTool(ctx): WebSearchProviderToolDefinition | null;
+}
+```
+
+#### Provider Resolution Algorithm
+
+The runtime resolver in `src/web-search/runtime.ts` follows this sequence:
+
+1. Check if `tools.web.search.enabled` is `true` (default: yes)
+2. Load all registered `WebSearchProviderPlugin` instances (bundled + extension-provided)
+3. Sort providers by `autoDetectOrder` (ascending — lower number = higher priority)
+4. If `tools.web.search.provider` is explicitly set → use that provider
+5. Otherwise, **auto-detect**:
+   - Scan providers that `requiresCredential` and have a valid API key available → pick highest priority
+   - If none found, fall back to keyless providers (DuckDuckGo, `autoDetectOrder: 100`)
+6. Call the selected provider's `createTool(ctx)` to get the tool definition
+
+#### Built-in Providers (9 providers)
+
+| Provider | Extension | API Endpoint | Requires Key | Auto-Detect Priority | Key Features |
+|----------|-----------|-------------|-------------|---------------------|-------------|
+| **Brave** | `extensions/brave/` | `api.search.brave.com/res/v1/web/search` | Yes | — | Two modes: "web" (structured results) and "llm-context" (pre-extracted). 84+ language codes. Date filtering (YYYY-MM-DD or freshness: pd/pw/pm/py). Country/locale filtering. |
+| **Tavily** | `extensions/tavily/` | `api.tavily.com/search` | Yes | — | Search depth control. Topic categorization. Domain include/exclude filters. Time range filtering. Optional AI-generated answer summaries. Separate `/extract` endpoint. |
+| **DuckDuckGo** | `extensions/duckduckgo/` | *(keyless)* | **No** | 100 (fallback) | Free, no API key required. Region filtering. Safe search (strict/moderate/off). Always available as last-resort fallback. |
+| **Perplexity** | `extensions/perplexity/` | Perplexity API or OpenRouter | Yes | — | Multiple transports: direct API (`pplx-*` keys), OpenRouter gateway (`sk-or-v1-*` keys). Models: `sonar-pro`, `sonar-reasoning-pro`, etc. |
+| **Firecrawl** | `extensions/firecrawl/` | `{baseUrl}/v2/search` | Yes | — | Optional full-page scrape of results (`scrapeResults`). Source and category filtering. Separate search + scrape caches. |
+| **X.ai Grok** | `extensions/xai/` | X.ai API | Yes | — | Grok-powered web search |
+| **Google Gemini** | `extensions/google/` | Gemini API | Yes | — | Gemini grounding with Google Search |
+| **Moonshot Kimi** | `extensions/moonshot/` | Kimi API | Yes | — | Kimi-powered web search |
+| **Exa** | `extensions/exa/` | Exa API | Yes | — | Neural/semantic search with content extraction |
+
+#### Brave Search Provider — Detailed Example
+
+The most feature-rich built-in provider (`extensions/brave/src/brave-web-search-provider.ts`, ~615 lines):
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | string | *(required)* | Search query text |
+| `count` | number (1–10) | 5 | Number of results |
+| `country` | string | — | Two-letter country code filter |
+| `language` | string | — | Language filter (84+ codes, with alias handling e.g. `ja` → `jp`) |
+| `search_lang` | string | — | Search language (independent of UI language) |
+| `ui_lang` | string | — | UI display language |
+| `freshness` | string | — | Freshness filter: `pd` (past day), `pw` (past week), `pm` (past month), `py` (past year) |
+| `date_after` | string | — | Results after date (YYYY-MM-DD) |
+| `date_before` | string | — | Results before date (YYYY-MM-DD) |
+
+**Two search modes:**
+- **Web mode** (default) — `GET /res/v1/web/search` returns structured results with title, URL, description, age, siteName
+- **LLM-context mode** — `GET /res/v1/llm/context` returns pre-extracted content chunks with snippets, optimized for LLM consumption
+
+**Result format:**
+```typescript
+{
+  query: string;
+  provider: "brave";
+  mode?: "llm-context";
+  count: number;
+  tookMs: number;
+  externalContent: { untrusted: true, source: "web_search", provider: "brave", wrapped: true };
+  results: Array<{
+    title: string;
+    url: string;
+    description?: string;
+    published?: string;      // Age/date of publication
+    siteName?: string;
+    snippets?: string[];     // LLM-context mode only
+  }>;
+  sources?: Array<...>;      // LLM-context mode only
+}
+```
+
+#### Tavily Search Provider — Detailed Example
+
+(`extensions/tavily/src/tavily-client.ts`, ~253 lines):
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | string | *(required)* | Search query text |
+| `count` | number (1–20) | 5 | Number of results |
+| `searchDepth` | string | — | Search depth control |
+| `topic` | string | — | Topic categorization filter |
+| `timeRange` | string | — | Time range filter |
+| `includeDomains` | string[] | — | Restrict results to these domains |
+| `excludeDomains` | string[] | — | Exclude results from these domains |
+| `includeAnswer` | boolean | — | Include AI-generated answer summary |
+
+**Endpoint:** `POST https://api.tavily.com/search` (or `TAVILY_BASE_URL` env override)
+
+**Additional capability:** Separate `POST /extract` endpoint for standalone URL content extraction (used as a distinct tool when enabled).
+
+#### Configuration Keys
+
+| Config Key | Type | Default | Description |
+|------------|------|---------|-------------|
+| `tools.web.search.enabled` | boolean | `true` | Master enable/disable |
+| `tools.web.search.provider` | string | *(auto-detect)* | Explicit provider ID |
+| `tools.web.search.timeoutSeconds` | number | 30 | API request timeout |
+| `tools.web.search.cacheTtlMinutes` | number | 15 | Result cache TTL |
+| `tools.web.search.{providerId}.*` | varies | — | Provider-specific config (scoped by provider ID) |
+
+#### Credential Resolution
+
+For each provider, credentials are resolved in order:
+
+1. `tools.web.search.{providerId}.apiKey` — Provider-scoped config key
+2. `tools.web.search.apiKey` — Top-level fallback
+3. Environment variable (provider-specific: `BRAVE_API_KEY`, `TAVILY_API_KEY`, etc.)
+4. Secret normalization: strip whitespace, detect secret-manager references
+
+---
+
+### Network Security (web_fetch & web_search shared)
+
+Both tools share the SSRF-protected fetch layer in `src/agents/tools/web-guarded-fetch.ts`:
+
+```mermaid
+flowchart TD
+    Request["Outbound HTTP request"] --> Mode{"Endpoint\ntype?"}
+    
+    Mode -->|Untrusted URL\nweb_fetch user URL| SSRFGuard["fetchWithWebToolsNetworkGuard()"]
+    Mode -->|Trusted API\nBrave, Tavily, Firecrawl| TrustedFetch["withTrustedWebToolsEndpoint()"]
+    
+    SSRFGuard --> IPCheck{"Destination IP\ncheck"}
+    IPCheck -->|Private/internal IP| Block["SSRF Blocked\nSsrfBlockedError"]
+    IPCheck -->|RFC 2544 benchmark| Block
+    IPCheck -->|Public IP| AllowFetch["Allow fetch\n(with redirect tracking)"]
+    
+    AllowFetch --> RedirectCheck{"Redirect?"}
+    RedirectCheck -->|Yes, count < max| SSRFGuard
+    RedirectCheck -->|Yes, count >= max| TooMany["Error: too many redirects"]
+    RedirectCheck -->|No| Response["Return response"]
+    
+    TrustedFetch --> AllowAll["Allow all IPs\n(trusted 3rd party API)"]
+    AllowAll --> ProxyCheck{"Env proxy\nconfigured?"}
+    ProxyCheck -->|Yes| UseProxy["Route through proxy"]
+    ProxyCheck -->|No| DirectCall["Direct API call"]
+    UseProxy & DirectCall --> APIResponse["Return API response"]
+    
+    style Block fill:#ffcdd2,stroke:#ef9a9a,color:#1a1a1a
+    style SSRFGuard fill:#ffcdd2,stroke:#ef9a9a,color:#1a1a1a
+    style TrustedFetch fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+    style Response fill:#c8e6c9,stroke:#81c784,color:#1a1a1a
+```
+
+**Key security behaviors:**
+- **SSRF protection**: All user-supplied URLs pass through `fetchWithWebToolsNetworkGuard()` which blocks private/internal IPs, loopback, link-local, and RFC 2544 benchmark ranges
+- **Redirect re-validation**: Each redirect hop re-checks the destination IP through the SSRF guard
+- **Trusted endpoints**: API calls to known providers (Brave, Tavily, Firecrawl, etc.) use `withTrustedWebToolsEndpoint()` which allows private network access (for self-hosted instances) and supports env proxy routing
+- **Content wrapping**: All returned content is wrapped with `wrapWebContent()` which marks it as `untrusted` external content with source attribution, enabling downstream security policies
+
+### Content Wrapping & Trust Boundary
+
+All web tool responses include an `externalContent` metadata block:
+
+```typescript
+{
+  externalContent: {
+    untrusted: true,           // Signals content is from external source
+    source: "web_fetch" | "web_search",
+    provider?: string,         // Search provider ID (web_search only)
+    wrapped: true              // Content has security wrapper applied
+  }
+}
+```
+
+The `wrapWebContent()` function:
+- Adds a security boundary marker around external content
+- Calculates wrapper overhead so content truncation accounts for it
+- Enables the Security Auditor (`src/security/`) to detect and handle external content in the LLM context
 
 ---
 
